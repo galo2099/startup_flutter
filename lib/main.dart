@@ -14,12 +14,13 @@ class Action {
 
 Set<WordPair> wordPairReducer(Set<WordPair> state, dynamic action) {
   var a = new Set<WordPair>.from(state);
-  if (action.type == ActionType.Insert) {
-    a.add(action.wordPair);
-  }
-
-  if (action.type == ActionType.Remove) {
-    a.remove(action.wordPair);
+  switch (action.type) {
+    case ActionType.Insert:
+      a.add(action.wordPair);
+      break;
+    case ActionType.Remove:
+      a.remove(action.wordPair);
+      break;
   }
 
   return a;
@@ -55,7 +56,7 @@ class MyApp extends StatelessWidget {
   }
 }
 
-class RandomWordsState extends State<RandomWords> {
+class RandomWords extends StatelessWidget {
   final _suggestions = <WordPair>[];
   final _biggerFont = const TextStyle(fontSize: 18.0);
 
@@ -65,14 +66,17 @@ class RandomWordsState extends State<RandomWords> {
       appBar: AppBar(
         title: Text('Startup Name Generator'),
         actions: <Widget>[
-          new IconButton(icon: const Icon(Icons.list), onPressed: _pushSaved),
+          new IconButton(
+            icon: const Icon(Icons.list),
+            onPressed: () => _pushSaved(context),
+          ),
         ],
       ),
       body: _buildSuggestions(),
     );
   }
 
-  void _pushSaved() {
+  void _pushSaved(BuildContext context) {
     Navigator
         .of(context)
         .push(new MaterialPageRoute<void>(builder: (BuildContext context) {
@@ -147,9 +151,4 @@ class RandomWordsState extends State<RandomWords> {
       );
     });
   }
-}
-
-class RandomWords extends StatefulWidget {
-  @override
-  RandomWordsState createState() => new RandomWordsState();
 }
