@@ -13,7 +13,7 @@ class Action {
 }
 
 Set<WordPair> wordPairReducer(Set<WordPair> state, dynamic action) {
-  var a = new Set<WordPair>.from(state);
+  var a = Set<WordPair>.from(state);
   switch (action.type) {
     case ActionType.Insert:
       a.add(action.wordPair);
@@ -27,9 +27,9 @@ Set<WordPair> wordPairReducer(Set<WordPair> state, dynamic action) {
 }
 
 void main() {
-  final store = new Store<Set<WordPair>>(
+  final store = Store<Set<WordPair>>(
     wordPairReducer,
-    initialState: new Set<WordPair>(),
+    initialState: Set<WordPair>(),
   );
 
   runApp(MyApp(store: store, title: 'Startup Name Generator'));
@@ -47,7 +47,7 @@ class MyApp extends StatelessWidget {
       store: store,
       child: MaterialApp(
         title: title,
-        theme: new ThemeData(
+        theme: ThemeData(
           primaryColor: Colors.green,
         ),
         home: RandomWords(),
@@ -66,9 +66,10 @@ class RandomWords extends StatelessWidget {
       appBar: AppBar(
         title: Text('Startup Name Generator'),
         actions: <Widget>[
-          new IconButton(
+          IconButton(
             icon: const Icon(Icons.list),
-            onPressed: () => _pushSaved(context),
+            onPressed: () => Navigator.push(
+                context, MaterialPageRoute(builder: (_) => _buildFavorites())),
           ),
         ],
       ),
@@ -76,30 +77,26 @@ class RandomWords extends StatelessWidget {
     );
   }
 
-  void _pushSaved(BuildContext context) {
-    Navigator
-        .of(context)
-        .push(new MaterialPageRoute<void>(builder: (BuildContext context) {
-      return new Scaffold(
-          appBar: new AppBar(
-            title: const Text('Saved suggestions'),
-          ),
-          body: new StoreBuilder<Set<WordPair>>(
-            rebuildOnChange: false,
-            builder: (context, store) {
-              final Iterable<Widget> tiles = store.state.map((WordPair pair) {
-                return _buildRow(pair);
-              });
-              final List<Widget> divided = ListTile
-                  .divideTiles(
-                    context: context,
-                    tiles: tiles,
-                  )
-                  .toList();
-              return new ListView(children: divided);
-            },
-          ));
-    }));
+  Widget _buildFavorites() {
+    return Scaffold(
+        appBar: AppBar(
+          title: const Text('Saved suggestions'),
+        ),
+        body: StoreBuilder<Set<WordPair>>(
+          rebuildOnChange: false,
+          builder: (context, store) {
+            final Iterable<Widget> tiles = store.state.map((WordPair pair) {
+              return _buildRow(pair);
+            });
+            final List<Widget> divided = ListTile
+                .divideTiles(
+                  context: context,
+                  tiles: tiles,
+                )
+                .toList();
+            return ListView(children: divided);
+          },
+        ));
   }
 
   Widget _buildSuggestions() {
@@ -132,20 +129,20 @@ class RandomWords extends StatelessWidget {
   Widget _buildRow(WordPair pair) {
     return StoreBuilder<Set<WordPair>>(builder: (context, store) {
       final bool alreadySaved = store.state.contains(pair);
-      return new ListTile(
+      return ListTile(
         title: Text(
           pair.asPascalCase,
           style: _biggerFont,
         ),
-        trailing: new Icon(
+        trailing: Icon(
           alreadySaved ? Icons.favorite : Icons.favorite_border,
           color: alreadySaved ? Colors.red : null,
         ),
         onTap: () {
           if (alreadySaved) {
-            store.dispatch(new Action(pair, ActionType.Remove));
+            store.dispatch(Action(pair, ActionType.Remove));
           } else {
-            store.dispatch(new Action(pair, ActionType.Insert));
+            store.dispatch(Action(pair, ActionType.Insert));
           }
         },
       );
