@@ -1,49 +1,123 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:math';
+
 import 'package:flutter/material.dart';
-import 'package:english_words/english_words.dart';
 import 'package:flutter_redux/flutter_redux.dart';
 import 'package:redux/redux.dart';
+import 'package:http/http.dart' as http;
+import 'package:quiver/core.dart';
 
-enum ActionType { Insert, Remove }
+class ListState {
+  NotificationListenerCallback callback;
+  List<String> items;
 
-class Action {
-  WordPair wordPair;
-  ActionType type;
+  ListState(this.callback, this.items);
 
-  Action(this.wordPair, this.type);
+  bool operator ==(o) => o is ListState && o.items == items;
+  int get hashCode => hash2(callback.hashCode, items.hashCode);
 }
 
-Set<WordPair> wordPairReducer(Set<WordPair> state, dynamic action) {
-  var a = Set<WordPair>.from(state);
-  switch (action.type) {
-    case ActionType.Insert:
-      a.add(action.wordPair);
-      break;
-    case ActionType.Remove:
-      a.remove(action.wordPair);
-      break;
-  }
+class InsertWordPair {
+  String wordPair;
+  InsertWordPair(this.wordPair);
+}
 
-  return a;
+class RemoveWordPair {
+  String wordPair;
+  RemoveWordPair(this.wordPair);
+}
+
+class AddSuggestions {
+  List<String> items;
+  AddSuggestions(this.items);
+}
+
+class WordListState {
+  Set<String> favorites;
+  List<String> items;
+
+  WordListState({this.favorites, this.items});
+}
+
+final favoritesReducer = combineReducers<Set<String>>([
+  TypedReducer<Set<String>, RemoveWordPair>(removeFavorite),
+  TypedReducer<Set<String>, InsertWordPair>(addFavorite)
+]);
+
+Set<String> removeFavorite(Set<String> favorites, RemoveWordPair action) {
+  return Set<String>.from(favorites)..remove(action.wordPair);
+}
+
+Set<String> addFavorite(Set<String> favorites, InsertWordPair action) {
+  return Set<String>.from(favorites)..add(action.wordPair);
+}
+
+final itemsReducer = combineReducers<List<String>>([
+  TypedReducer<List<String>, AddSuggestions>(addSuggestions),
+]);
+
+List<String> addSuggestions(List<String> items, AddSuggestions action) {
+  return List<String>.from(items)..addAll(action.items);
+}
+
+WordListState wordListStateReducer(WordListState state, action) {
+  return WordListState(
+      favorites: favoritesReducer(state.favorites, action),
+      items: itemsReducer(state.items, action));
 }
 
 void main() {
-  final store = Store<Set<WordPair>>(
-    wordPairReducer,
-    initialState: Set<WordPair>(),
+  final store = Store<WordListState>(
+    wordListStateReducer,
+    initialState:
+        WordListState(favorites: Set<String>(), items: List<String>()),
   );
 
   runApp(MyApp(store: store, title: 'Startup Name Generator'));
 }
 
+String getSuggestion(List<String> data) {
+  var rng = new Random();
+  String w1 = data[rng.nextInt(data.length)];
+  String w2 = data[rng.nextInt(data.length)];
+
+  return w1.substring(0, 1).toUpperCase() +
+      w1.substring(1) +
+      w2.substring(0, 1).toUpperCase() +
+      w2.substring(1);
+}
+
+Future<List<String>> fetchSuggestions(int number) async {
+  debugPrint("fetching " + number.toString());
+  await new Future.delayed(const Duration(seconds: 1));
+  final response =
+      await http.get('https://www.randomlists.com/data/words.json');
+
+  if (response.statusCode == 200) {
+    // If the call to the server was successful, parse the JSON
+    List<String> data = json.decode(response.body)['data'].cast<String>();
+    var suggestions = List<String>();
+    for (int i = 0; i < number; ++i) {
+      suggestions.add(getSuggestion(data));
+    }
+    return suggestions;
+  } else {
+    // If that call was not successful, throw an error.
+    throw Exception('Failed to load post');
+  }
+}
+
 class MyApp extends StatelessWidget {
-  final Store<Set<WordPair>> store;
+  final Store<WordListState> store;
   final String title;
 
   MyApp({Key key, this.store, this.title}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    return StoreProvider<Set<WordPair>>(
+    fetchSuggestions(20).then((sugg) => store.dispatch(AddSuggestions(sugg)));
+    return StoreProvider<WordListState>(
       store: store,
       child: MaterialApp(
         title: title,
@@ -56,10 +130,81 @@ class MyApp extends StatelessWidget {
   }
 }
 
-class RandomWords extends StatelessWidget {
-  final _suggestions = <WordPair>[];
+Widget _buildRow(String pair) {
   final _biggerFont = const TextStyle(fontSize: 18.0);
+  return StoreBuilder<WordListState>(builder: (context, store) {
+    final bool alreadySaved = store.state.favorites.contains(pair);
+    return ListTile(
+      title: Text(
+        pair,
+        style: _biggerFont,
+      ),
+      trailing: Icon(
+        alreadySaved ? Icons.favorite : Icons.favorite_border,
+        color: alreadySaved ? Colors.red : null,
+      ),
+      onTap: () {
+        if (alreadySaved) {
+          store.dispatch(RemoveWordPair(pair));
+        } else {
+          store.dispatch(InsertWordPair(pair));
+        }
+      },
+    );
+  });
+}
 
+class MyList extends StatelessWidget {
+  var _running = false;
+
+  _scrollListener(
+      void call(_), int number, ScrollNotification notification) async {
+    if (!_running &&
+        notification.metrics.pixels >
+            0.80 * notification.metrics.maxScrollExtent) {
+      _running = true;
+      debugPrint(notification.metrics.pixels.toString());
+      debugPrint(notification.metrics.maxScrollExtent.toString());
+      var sugg = await fetchSuggestions(number);
+      call(AddSuggestions(sugg));
+      _running = false;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StoreConnector<WordListState, ListState>(
+        converter: (store) => ListState(
+            (notification) {
+              _scrollListener(store.dispatch, store.state.items.length, notification);
+              return true;
+            },
+            store.state.items),
+        distinct: true,
+        builder: (context, state) {
+          debugPrint("buildList");
+          return NotificationListener<ScrollNotification>(
+            onNotification: state.callback,
+            child: ListView.builder(
+                padding: const EdgeInsets.all(16.0),
+                itemCount: state.items.length * 2,
+                // The itemBuilder callback is called once per suggested word pairing,
+                // and places each suggestion into a ListTile row.
+                // For even rows, the function adds a ListTile row for the word pairing.
+                // For odd rows, the function adds a Divider widget to visually
+                // separate the entries. Note that the divider may be difficult
+                // to see on smaller devices.
+                itemBuilder: (context, i) {
+                  // Add a one-pixel-high divider widget before each row in theListView.
+                  if (i.isOdd) return Divider();
+                  return _buildRow(state.items[i ~/ 2]);
+                }),
+          );
+        });
+  }
+}
+
+class RandomWords extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -82,10 +227,12 @@ class RandomWords extends StatelessWidget {
         appBar: AppBar(
           title: const Text('Saved suggestions'),
         ),
-        body: StoreBuilder<Set<WordPair>>(
+        body: StoreConnector<WordListState, Set<String>>(
+          distinct: true,
+          converter: (store) => store.state.favorites,
           rebuildOnChange: false,
-          builder: (context, store) {
-            final Iterable<Widget> tiles = store.state.map((WordPair pair) {
+          builder: (context, favorites) {
+            final Iterable<Widget> tiles = favorites.map((String pair) {
               return _buildRow(pair);
             });
             final List<Widget> divided = ListTile
@@ -100,52 +247,6 @@ class RandomWords extends StatelessWidget {
   }
 
   Widget _buildSuggestions() {
-    return ListView.builder(
-        padding: const EdgeInsets.all(16.0),
-        // The itemBuilder callback is called once per suggested word pairing,
-        // and places each suggestion into a ListTile row.
-        // For even rows, the function adds a ListTile row for the word pairing.
-        // For odd rows, the function adds a Divider widget to visually
-        // separate the entries. Note that the divider may be difficult
-        // to see on smaller devices.
-        itemBuilder: (context, i) {
-          // Add a one-pixel-high divider widget before each row in theListView.
-          if (i.isOdd) return Divider();
-
-          // The syntax "i ~/ 2" divides i by 2 and returns an integer result.
-          // For example: 1, 2, 3, 4, 5 becomes 0, 1, 1, 2, 2.
-          // This calculates the actual number of word pairings in the ListView,
-          // minus the divider widgets.
-          final index = i ~/ 2;
-          // If you've reached the end of the available word pairings...
-          if (index >= _suggestions.length) {
-            // ...then generate 10 more and add them to the suggestions list.
-            _suggestions.addAll(generateWordPairs().take(10));
-          }
-          return _buildRow(_suggestions[index]);
-        });
-  }
-
-  Widget _buildRow(WordPair pair) {
-    return StoreBuilder<Set<WordPair>>(builder: (context, store) {
-      final bool alreadySaved = store.state.contains(pair);
-      return ListTile(
-        title: Text(
-          pair.asPascalCase,
-          style: _biggerFont,
-        ),
-        trailing: Icon(
-          alreadySaved ? Icons.favorite : Icons.favorite_border,
-          color: alreadySaved ? Colors.red : null,
-        ),
-        onTap: () {
-          if (alreadySaved) {
-            store.dispatch(Action(pair, ActionType.Remove));
-          } else {
-            store.dispatch(Action(pair, ActionType.Insert));
-          }
-        },
-      );
-    });
+    return MyList();
   }
 }
